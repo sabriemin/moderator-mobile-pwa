@@ -76,7 +76,7 @@ input:disabled,select:disabled,textarea:disabled,button:disabled{filter:saturate
       <div class="brand">Paribu Cineverse</div>
       <h1>Mobil Moderatör Kurulumu</h1>
       <p>Güncel Apps Script Web App <b>/exec</b> adresini gir. Adres bu cihazda saklanır; şifre veya quiz verisi PWA önbelleğine alınmaz.</p>
-      <div class="field"><label>Apps Script /exec adresi</label><input id="pwaBackendUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+      <div class="field"><label>Apps Script /exec adresi</label><input id="pwaBackendUrl" type="url" inputmode="url" autocomplete="url" value="https://script.google.com/macros/s/AKfycbwxmWhKRnriuC8uBJQsDjW5JxH64suSQVORMKmx8hko4c09gykmM7Yx7nq-FaIGy7fgLQ/exec" readonly></div>
       <div id="pwaSetupLog" class="log"></div>
       <div class="pwa-setup-actions">
         <button class="btn full" type="button" onclick="savePwaBackend()">Bağlan ve Kaydet</button>
@@ -86,7 +86,7 @@ input:disabled,select:disabled,textarea:disabled,button:disabled{filter:saturate
       <div class="pwa-help">Önce paketteki Apps Script dosyalarını yeni sürüm olarak yayınla. Ardından dağıtımın <b>/exec</b> adresini buraya yapıştır.</div>
     </div>
   </div>
-  <div class="pwa-version">MOBILE v1.0.1</div>
+  <div class="pwa-version">MOBILE v1.0.4</div>
   <div class="pwa-fab-group"><button id="pwaInstallButton" class="pwa-fab install" type="button" onclick="installPwa()" hidden>Uygulamayı Yükle</button><button class="pwa-fab" type="button" onclick="openPwaSetup()">⚙ Bağlantı</button></div>
 
   <div id="lock" class="lock"><div class="lock-card glass"><div class="brand">Paribu Cineverse</div><h1>Moderatör Girişi</h1><p class="muted">Sheet içindeki moderatör şifresiyle giriş yap.</p><form id="moderatorLoginForm" onsubmit="event.preventDefault();login()"><label class="sr-only" for="moderatorUsername">Kullanıcı adı</label><input id="moderatorUsername" class="sr-only" name="username" type="text" autocomplete="username" value="moderator" tabindex="-1" aria-hidden="true"><div class="field"><label for="passwordInput">Şifre</label><input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="Şifre"></div><button class="btn full" type="submit">Giriş Yap</button></form><div id="loginLog" class="log"></div></div></div>
@@ -186,6 +186,7 @@ function renderNextQuestionPreview(data){
   el.innerHTML=n&&n.soru?('<div class="next-question-number">Soru '+esc(n.soruNo||'-')+'</div><div class="next-question-text">'+esc(n.soru)+'</div><div class="next-question-answer">Doğru cevap: <b>'+esc(n.dogruCevap||'-')+'</b></div>'):'<div class="next-question-empty">Sonraki soru yok</div>';
 }
 function setLog(id,msg,good){const el=$(id);if(!el)return;el.className='log '+(good?'good':msg?'bad':'');el.innerText=msg||''}
+const PWA_FIXED_BACKEND_URL='https://script.google.com/macros/s/AKfycbwxmWhKRnriuC8uBJQsDjW5JxH64suSQVORMKmx8hko4c09gykmM7Yx7nq-FaIGy7fgLQ/exec';
 const PWA_BACKEND_KEY='quizModeratorPwaBackendUrl';
 const PWA_CHANNEL='quiz-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
 let pwaRequestCounter=0,pwaInstallPrompt=null;
@@ -195,7 +196,7 @@ function normalizePwaBackend(value){
   if(!text)return '';
   try{const u=new URL(text);u.hash='';u.search='';return u.toString().replace(/\/$/,'')}catch(ignore){return ''}
 }
-function getPwaBackend(){return normalizePwaBackend(localStorage.getItem(PWA_BACKEND_KEY)||'')}
+function getPwaBackend(){return normalizePwaBackend(PWA_FIXED_BACKEND_URL)}
 function openPwaSetup(message){const box=$('pwaSetup'),input=$('pwaBackendUrl'),log=$('pwaSetupLog');if(input)input.value=getPwaBackend();if(log)log.textContent=message||'';if(box)box.classList.add('show')}
 function closePwaSetup(){const box=$('pwaSetup');if(box&&getPwaBackend())box.classList.remove('show')}
 function clearPwaBackend(){localStorage.removeItem(PWA_BACKEND_KEY);openPwaSetup('Bağlantı adresi silindi.')}
@@ -1096,7 +1097,7 @@ body.ui-scroll-locked{
 @media(max-width:900px){#panel-event .event-manage-row{grid-template-columns:22px 22px minmax(0,1fr) auto}.event-manage-row .manage-actions{grid-column:3/5}.participant-account-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){#panel-event .event-manage-row{grid-template-columns:20px minmax(0,1fr)}#panel-event .event-state-dot{display:none}.event-manage-row .event-active-badge{grid-column:2;width:max-content}.event-manage-row .manage-actions{grid-column:2}.participant-account-grid{grid-template-columns:1fr}}
 </style>
-<div class="app-version">MOBILE v1.0.1</div>
+<div class="app-version">MOBILE v1.0.4</div>
 
 <script>
 (function(){
