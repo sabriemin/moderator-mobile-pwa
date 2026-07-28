@@ -86,7 +86,6 @@ input:disabled,select:disabled,textarea:disabled,button:disabled{filter:saturate
       <div class="pwa-help">Önce paketteki Apps Script dosyalarını yeni sürüm olarak yayınla. Ardından dağıtımın <b>/exec</b> adresini buraya yapıştır.</div>
     </div>
   </div>
-  <iframe id="apiBridge" title="Quiz API Bridge" aria-hidden="true"></iframe>
   <div class="pwa-version">MOBILE v1.0.1</div>
   <div class="pwa-fab-group"><button id="pwaInstallButton" class="pwa-fab install" type="button" onclick="installPwa()" hidden>Uygulamayı Yükle</button><button class="pwa-fab" type="button" onclick="openPwaSetup()">⚙ Bağlantı</button></div>
 
@@ -189,7 +188,7 @@ function renderNextQuestionPreview(data){
 function setLog(id,msg,good){const el=$(id);if(!el)return;el.className='log '+(good?'good':msg?'bad':'');el.innerText=msg||''}
 const PWA_BACKEND_KEY='quizModeratorPwaBackendUrl';
 const PWA_CHANNEL='quiz-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
-let pwaBridgeReady=false,pwaBridgePromise=null,pwaBridgeCounter=0,pwaInstallPrompt=null,pwaBridgePort=null;
+let pwaRequestCounter=0,pwaInstallPrompt=null;
 const pwaPending=new Map();
 function normalizePwaBackend(value){
   let text=String(value||'').trim();
@@ -199,23 +198,55 @@ function normalizePwaBackend(value){
 function getPwaBackend(){return normalizePwaBackend(localStorage.getItem(PWA_BACKEND_KEY)||'')}
 function openPwaSetup(message){const box=$('pwaSetup'),input=$('pwaBackendUrl'),log=$('pwaSetupLog');if(input)input.value=getPwaBackend();if(log)log.textContent=message||'';if(box)box.classList.add('show')}
 function closePwaSetup(){const box=$('pwaSetup');if(box&&getPwaBackend())box.classList.remove('show')}
-function clearPwaBackend(){localStorage.removeItem(PWA_BACKEND_KEY);pwaBridgeReady=false;pwaBridgePort=null;pwaBridgePromise=null;const frame=$('apiBridge');if(frame)frame.removeAttribute('src');openPwaSetup('Bağlantı adresi silindi.')}
+function clearPwaBackend(){localStorage.removeItem(PWA_BACKEND_KEY);openPwaSetup('Bağlantı adresi silindi.')}
 function savePwaBackend(){const input=$('pwaBackendUrl'),log=$('pwaSetupLog'),url=normalizePwaBackend(input&&input.value);if(!url){if(log)log.textContent='Geçerli bir HTTPS /exec adresi gir.';return}if(!/\/exec$/i.test(url)){if(log)log.textContent='Adres Apps Script dağıtımının /exec bağlantısı olmalı.';return}localStorage.setItem(PWA_BACKEND_KEY,url);location.reload()}
-function bridgeUrl(){const base=getPwaBackend();return base+(base.includes('?')?'&':'?')+'page=mobile-bridge&channel='+encodeURIComponent(PWA_CHANNEL)+'&hostOrigin='+encodeURIComponent(location.origin)+'&t='+Date.now()}
-function resolvePwaResponse(msg){msg=msg||{};if(msg.channel!==PWA_CHANNEL||msg.type!=='quiz-api-response'||!msg.id)return;const item=pwaPending.get(msg.id);if(!item)return;pwaPending.delete(msg.id);clearTimeout(item.timer);if(msg.ok)item.resolve(msg.result);else item.reject(new Error(msg.error||'API işlemi başarısız.'))}
-function onPwaBridgePortMessage(event){resolvePwaResponse(event.data||{})}
-function onPwaBridgeMessage(event){const msg=event.data||{};if(msg.channel!==PWA_CHANNEL||msg.type!=='quiz-bridge-ready')return;const port=event.ports&&event.ports[0];if(!port)return;pwaBridgePort=port;pwaBridgePort.onmessage=onPwaBridgePortMessage;if(pwaBridgePort.start)pwaBridgePort.start();pwaBridgeReady=true;if(window.__pwaBridgeResolve){window.__pwaBridgeResolve();window.__pwaBridgeResolve=null}}
-window.addEventListener('message',onPwaBridgeMessage);
+function cleanupPwaRequest(id){
+  const item=pwaPending.get(id);if(!item)return;
+  clearTimeout(item.timer);pwaPending.delete(id);
+  try{item.form&&item.form.remove()}catch(ignore){}
+  try{item.frame&&item.frame.remove()}catch(ignore){}
+}
+function onPwaPostResponse(event){
+  const msg=event.data||{};
+  if(msg.type!=='quiz-pwa-post-response'||msg.channel!==PWA_CHANNEL||!msg.requestId)return;
+  const item=pwaPending.get(msg.requestId);if(!item)return;
+  cleanupPwaRequest(msg.requestId);
+  if(msg.ok)item.resolve(msg.result);else item.reject(new Error(msg.error||'API işlemi başarısız.'));
+}
+window.addEventListener('message',onPwaPostResponse);
 function connectPwaBridge(){
-  if(pwaBridgeReady)return Promise.resolve();
-  const backend=getPwaBackend();if(!backend)return Promise.reject(new Error('Apps Script bağlantısı ayarlanmamış.'));
-  if(pwaBridgePromise)return pwaBridgePromise;
-  pwaBridgePromise=new Promise((resolve,reject)=>{window.__pwaBridgeResolve=resolve;const frame=$('apiBridge');if(!frame){reject(new Error('API köprüsü bulunamadı.'));return}frame.src=bridgeUrl();setTimeout(()=>{if(!pwaBridgeReady){pwaBridgePromise=null;reject(new Error('Apps Script bağlantısı kurulamadı. Yeni deployment adresini kontrol et.'))}},18000)});
-  return pwaBridgePromise;
+  return getPwaBackend()?Promise.resolve():Promise.reject(new Error('Apps Script bağlantısı ayarlanmamış.'));
 }
 function api(params){
-  params=Object.assign({},params||{});params.password=params.password!==undefined?params.password:moderatorPassword;
-  return connectPwaBridge().then(()=>new Promise((resolve,reject)=>{const id='req-'+(++pwaBridgeCounter)+'-'+Date.now();const timer=setTimeout(()=>{pwaPending.delete(id);reject(new Error('İşlem zaman aşımına uğradı. İnternet bağlantısını kontrol et.'))},60000);pwaPending.set(id,{resolve,reject,timer});if(!pwaBridgePort){clearTimeout(timer);pwaPending.delete(id);reject(new Error('API köprüsü hazır değil.'));return}pwaBridgePort.postMessage({type:'quiz-api-request',channel:PWA_CHANNEL,id:id,params:params})}));
+  params=Object.assign({},params||{});
+  params.password=params.password!==undefined?params.password:moderatorPassword;
+  const backend=getPwaBackend();
+  if(!backend)return Promise.reject(new Error('Apps Script bağlantısı ayarlanmamış.'));
+  return new Promise((resolve,reject)=>{
+    const id='req-'+(++pwaRequestCounter)+'-'+Date.now();
+    const frame=document.createElement('iframe');
+    frame.name='quiz-api-frame-'+id.replace(/[^a-z0-9_-]/gi,'');
+    frame.title='Quiz API';frame.setAttribute('aria-hidden','true');
+    frame.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px';
+    const form=document.createElement('form');
+    form.method='POST';form.action=backend;form.target=frame.name;
+    form.style.display='none';form.acceptCharset='UTF-8';
+    const fields={
+      mobilePwaBridge:'1',
+      requestId:id,
+      channel:PWA_CHANNEL,
+      hostOrigin:location.origin,
+      payload:JSON.stringify(params)
+    };
+    Object.keys(fields).forEach(name=>{const input=document.createElement('input');input.type='hidden';input.name=name;input.value=fields[name];form.appendChild(input)});
+    const timer=setTimeout(()=>{
+      cleanupPwaRequest(id);
+      reject(new Error('Apps Script yanıt vermedi. /exec dağıtımını ve erişim iznini kontrol et.'));
+    },30000);
+    pwaPending.set(id,{resolve,reject,timer,frame,form});
+    document.body.appendChild(frame);document.body.appendChild(form);
+    try{form.submit()}catch(error){cleanupPwaRequest(id);reject(error)}
+  });
 }
 function setupPwaShell(){
   if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
@@ -225,7 +256,7 @@ function setupPwaShell(){
 function installPwa(){if(pwaInstallPrompt){pwaInstallPrompt.prompt();pwaInstallPrompt.userChoice.finally(()=>{pwaInstallPrompt=null;const b=$('pwaInstallButton');if(b)b.hidden=true});return}const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);alert(ios?'Safari paylaşım menüsünü açıp “Ana Ekrana Ekle” seçeneğine dokun.':'Tarayıcı menüsünden “Uygulamayı yükle” veya “Ana ekrana ekle” seçeneğini kullan.')}
 function handleAuth(d){if(d&&d.authRequired){localStorage.removeItem('moderatorPassword');localStorage.removeItem('quizModeratorPassword');moderatorPassword='';$('lock').classList.remove('hidden');$('loginLog').innerText=d.message||'Şifre gerekli.';$('passwordInput').focus();return true}return false}
 function moderatorBootstrapV38(p,persist){$('connectionChip').innerText='Bağlanıyor';return api({api:'checkModeratorPassword',password:p}).then(auth=>{if(!auth||!auth.ok)throw new Error((auth&&auth.message)||'Şifre yanlış.');return api({api:'getModeratorState',password:p,light:'1'})}).then(d=>{if(handleAuth(d))throw new Error(d.message||'Şifre yanlış.');if(!d||!d.ok)throw new Error(d&&d.message||'Moderatör verisi alınamadı.');moderatorPassword=p;if(persist){localStorage.setItem('moderatorPassword',p);localStorage.setItem('quizModeratorPassword',p)}$('loginLog').innerText='';$('lock').classList.add('hidden');render(d);$('connectionChip').innerText='Canlı / hızlı';$('connectionChip').className='chip ok';clearTimeout(window.__moderatorFullBootstrapV38);window.__moderatorFullBootstrapV38=setTimeout(()=>loadState(true),120);return d})}
-function login(){const p=$('passwordInput').value.trim();moderatorBootstrapV38(p,true).catch(e=>{$('lock').classList.remove('hidden');$('loginLog').innerText=e.message||'Şifre yanlış.'})}
+function login(){const p=$('passwordInput').value.trim(),button=document.querySelector('#moderatorLoginForm button[type=\"submit\"]');if(!p){$('loginLog').innerText='Şifreyi gir.';return}if(button){button.disabled=true;button.textContent='Bağlanıyor...'}$('loginLog').innerText='Apps Script bağlantısı kuruluyor...';moderatorBootstrapV38(p,true).catch(e=>{$('lock').classList.remove('hidden');$('loginLog').innerText=e.message||'Giriş yapılamadı.'}).finally(()=>{if(button){button.disabled=false;button.textContent='Giriş Yap'}})}
 function init(){
   buildAdVideoFields();setupPwaShell();
   if(!getPwaBackend()){openPwaSetup();return}
