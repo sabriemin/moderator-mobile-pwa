@@ -1,0 +1,30 @@
+{
+  "name": "Paribu Cineverse Quiz Night Moderator",
+  "short_name": "Quiz Moderator",
+  "description": "Paribu Cineverse Quiz Night mobil moderatör uygulaması",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#020403",
+  "theme_color": "#07100d",
+  "orientation": "any",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
