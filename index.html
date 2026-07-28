@@ -86,10 +86,10 @@ input:disabled,select:disabled,textarea:disabled,button:disabled{filter:saturate
     </div>
   </div>
   <iframe id="apiBridge" title="Quiz API Bridge" aria-hidden="true"></iframe>
-  <div class="pwa-version">MOBILE v1.0.0</div>
+  <div class="pwa-version">MOBILE v1.0.1</div>
   <div class="pwa-fab-group"><button id="pwaInstallButton" class="pwa-fab install" type="button" onclick="installPwa()" hidden>Uygulamayı Yükle</button><button class="pwa-fab" type="button" onclick="openPwaSetup()">⚙ Bağlantı</button></div>
 
-  <div id="lock" class="lock"><div class="lock-card glass"><div class="brand">Paribu Cineverse</div><h1>Moderatör Girişi</h1><p class="muted">Sheet içindeki moderatör şifresiyle giriş yap.</p><div class="field"><label>Şifre</label><input id="passwordInput" type="password" placeholder="Şifre" onkeydown="if(event.key==='Enter')login()"></div><button class="btn full" onclick="login()">Giriş Yap</button><div id="loginLog" class="log"></div></div></div>
+  <div id="lock" class="lock"><div class="lock-card glass"><div class="brand">Paribu Cineverse</div><h1>Moderatör Girişi</h1><p class="muted">Sheet içindeki moderatör şifresiyle giriş yap.</p><form id="moderatorLoginForm" onsubmit="event.preventDefault();login()"><div class="field"><label for="passwordInput">Şifre</label><input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="Şifre"></div><button class="btn full" type="submit">Giriş Yap</button></form><div id="loginLog" class="log"></div></div></div>
 
   <div class="app">
     <aside class="nav glass">
@@ -188,7 +188,7 @@ function renderNextQuestionPreview(data){
 function setLog(id,msg,good){const el=$(id);if(!el)return;el.className='log '+(good?'good':msg?'bad':'');el.innerText=msg||''}
 const PWA_BACKEND_KEY='quizModeratorPwaBackendUrl';
 const PWA_CHANNEL='quiz-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
-let pwaBridgeReady=false,pwaBridgePromise=null,pwaBridgeCounter=0,pwaInstallPrompt=null;
+let pwaBridgeReady=false,pwaBridgePromise=null,pwaBridgeCounter=0,pwaInstallPrompt=null,pwaBridgePort=null;
 const pwaPending=new Map();
 function normalizePwaBackend(value){
   let text=String(value||'').trim();
@@ -198,10 +198,12 @@ function normalizePwaBackend(value){
 function getPwaBackend(){return normalizePwaBackend(localStorage.getItem(PWA_BACKEND_KEY)||'')}
 function openPwaSetup(message){const box=$('pwaSetup'),input=$('pwaBackendUrl'),log=$('pwaSetupLog');if(input)input.value=getPwaBackend();if(log)log.textContent=message||'';if(box)box.classList.add('show')}
 function closePwaSetup(){const box=$('pwaSetup');if(box&&getPwaBackend())box.classList.remove('show')}
-function clearPwaBackend(){localStorage.removeItem(PWA_BACKEND_KEY);pwaBridgeReady=false;const frame=$('apiBridge');if(frame)frame.removeAttribute('src');openPwaSetup('Bağlantı adresi silindi.')}
+function clearPwaBackend(){localStorage.removeItem(PWA_BACKEND_KEY);pwaBridgeReady=false;pwaBridgePort=null;pwaBridgePromise=null;const frame=$('apiBridge');if(frame)frame.removeAttribute('src');openPwaSetup('Bağlantı adresi silindi.')}
 function savePwaBackend(){const input=$('pwaBackendUrl'),log=$('pwaSetupLog'),url=normalizePwaBackend(input&&input.value);if(!url){if(log)log.textContent='Geçerli bir HTTPS /exec adresi gir.';return}if(!/\/exec$/i.test(url)){if(log)log.textContent='Adres Apps Script dağıtımının /exec bağlantısı olmalı.';return}localStorage.setItem(PWA_BACKEND_KEY,url);location.reload()}
-function bridgeUrl(){const base=getPwaBackend();return base+(base.includes('?')?'&':'?')+'page=mobile-bridge&channel='+encodeURIComponent(PWA_CHANNEL)+'&t='+Date.now()}
-function onPwaBridgeMessage(event){const msg=event.data||{};if(msg.channel!==PWA_CHANNEL)return;if(msg.type==='quiz-bridge-ready'){pwaBridgeReady=true;if(window.__pwaBridgeResolve)window.__pwaBridgeResolve();return}if(msg.type!=='quiz-api-response'||!msg.id)return;const item=pwaPending.get(msg.id);if(!item)return;pwaPending.delete(msg.id);clearTimeout(item.timer);if(msg.ok)item.resolve(msg.result);else item.reject(new Error(msg.error||'API işlemi başarısız.'))}
+function bridgeUrl(){const base=getPwaBackend();return base+(base.includes('?')?'&':'?')+'page=mobile-bridge&channel='+encodeURIComponent(PWA_CHANNEL)+'&hostOrigin='+encodeURIComponent(location.origin)+'&t='+Date.now()}
+function resolvePwaResponse(msg){msg=msg||{};if(msg.channel!==PWA_CHANNEL||msg.type!=='quiz-api-response'||!msg.id)return;const item=pwaPending.get(msg.id);if(!item)return;pwaPending.delete(msg.id);clearTimeout(item.timer);if(msg.ok)item.resolve(msg.result);else item.reject(new Error(msg.error||'API işlemi başarısız.'))}
+function onPwaBridgePortMessage(event){resolvePwaResponse(event.data||{})}
+function onPwaBridgeMessage(event){const msg=event.data||{};if(msg.channel!==PWA_CHANNEL||msg.type!=='quiz-bridge-ready')return;const port=event.ports&&event.ports[0];if(!port)return;pwaBridgePort=port;pwaBridgePort.onmessage=onPwaBridgePortMessage;if(pwaBridgePort.start)pwaBridgePort.start();pwaBridgeReady=true;if(window.__pwaBridgeResolve){window.__pwaBridgeResolve();window.__pwaBridgeResolve=null}}
 window.addEventListener('message',onPwaBridgeMessage);
 function connectPwaBridge(){
   if(pwaBridgeReady)return Promise.resolve();
@@ -212,7 +214,7 @@ function connectPwaBridge(){
 }
 function api(params){
   params=Object.assign({},params||{});params.password=params.password!==undefined?params.password:moderatorPassword;
-  return connectPwaBridge().then(()=>new Promise((resolve,reject)=>{const id='req-'+(++pwaBridgeCounter)+'-'+Date.now();const timer=setTimeout(()=>{pwaPending.delete(id);reject(new Error('İşlem zaman aşımına uğradı. İnternet bağlantısını kontrol et.'))},60000);pwaPending.set(id,{resolve,reject,timer});$('apiBridge').contentWindow.postMessage({type:'quiz-api-request',channel:PWA_CHANNEL,id:id,params:params},'*')}));
+  return connectPwaBridge().then(()=>new Promise((resolve,reject)=>{const id='req-'+(++pwaBridgeCounter)+'-'+Date.now();const timer=setTimeout(()=>{pwaPending.delete(id);reject(new Error('İşlem zaman aşımına uğradı. İnternet bağlantısını kontrol et.'))},60000);pwaPending.set(id,{resolve,reject,timer});if(!pwaBridgePort){clearTimeout(timer);pwaPending.delete(id);reject(new Error('API köprüsü hazır değil.'));return}pwaBridgePort.postMessage({type:'quiz-api-request',channel:PWA_CHANNEL,id:id,params:params})}));
 }
 function setupPwaShell(){
   if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
@@ -290,7 +292,7 @@ function unblockUser(btn){const name=$('controlParticipantName').value.trim();re
 function deleteUser(btn){const name=$('controlParticipantName').value.trim();if(!name||!confirm(name+' aktif etkinlikten silinsin mi?'))return;return action(btn,()=>api({api:'deleteParticipant',name}).then(d=>{if(handleAuth(d))return;render(d);setLog('toolLog',d.userMessage||'Katılımcı silindi.',true)}).catch(e=>setLog('toolLog',e.message)))}
 function clearEventAnswers(btn){if(!confirm('Sadece aktif etkinlik sıfırlansın mı?'))return;return action(btn,()=>api({api:'clearEventAnswers'}).then(d=>{if(handleAuth(d))return;render(d);setLog('settingsLog',d.message||'Aktif etkinlik sıfırlandı.',true)}).catch(e=>setLog('settingsLog',e.message)))}
 function clearAnswers(btn){if(!confirm('Tüm cevaplar ve oyun oturumu sıfırlansın mı?'))return;return action(btn,()=>api({api:'clearAnswers'}).then(d=>{if(handleAuth(d))return;render(d);setLog('settingsLog','Oyun sıfırlandı.',true)}).catch(e=>setLog('settingsLog',e.message)))}
-init();setTimeout(applyDisabledFeaturesV20,60);
+init();
 </script>
 
 <script>
@@ -321,7 +323,7 @@ function pollRowsAllV22(){const rows=(latest&&latest.pollsAll)||(latest&&latest.
 function nextPollNoV22(eventName){return pollRowsAllV22().filter(p=>!eventName||String(p.eventName||'')===String(eventName)).reduce((m,p)=>Math.max(m,Number(p.pollNo||p.anketNo||0)),0)+1}
 function activeEventNameV22(){return String((latest&&latest.state&&latest.state.eventName)||'')}
 function refreshFullV22(after){return api({api:'getModeratorState'}).then(d=>{if(handleAuth(d))return;latest=d;render(d);if(typeof after==='function')after(d);return d})}
-newQuestionForm=newQuestionFormV22;
+
 function onQuestionEventChangeV22(){if(!editingQuestionV22){$('qNo').value=nextQuestionNoV22($('qEventName').value.trim())}}
 function editQuestionV22(i){const q=questionListRows[Number(i)];if(!q)return;editingQuestionV22={eventName:q.eventName,soruNo:Number(q.soruNo)};fillQuestionForm(q);clearDirty();$('qText').focus();setLog('questionLog','Düzenleme modu: '+q.eventName+' · Soru '+q.soruNo,true)}
 function saveQuestionUI(btn){const ev=($('qEventName').value||activeEventNameV22()).trim();return action(btn,()=>api(questionPayload()).then(d=>{if(handleAuth(d))return;if(!d||!d.ok)throw new Error((d&&d.message)||'Soru kaydedilemedi.');setLog('questionLog',d.questionMessage||'Soru kaydedildi.',true);return refreshFullV22(()=>resetQuestionFieldsV22(ev))}).catch(e=>setLog('questionLog',e.message)))}
@@ -330,7 +332,7 @@ function selectAllQuestionsV22(checked){questionListRows.forEach(q=>{const k=qKe
 function deleteQuestionRowV22(i,btn){const q=questionListRows[Number(i)];if(!q)return;if(!confirm(q.eventName+' · Soru '+q.soruNo+' kalıcı olarak silinsin mi?'))return;return action(btn,()=>api({api:'deleteQuestion',eventName:q.eventName,soruNo:q.soruNo}).then(d=>{if(!d||!d.ok)throw new Error((d&&d.message)||'Soru silinemedi.');selectedQuestionsV22.delete(qKeyV22(q.eventName,q.soruNo));setLog('questionLog',d.message||'Soru silindi.',true);return refreshFullV22(()=>resetQuestionFieldsV22(q.eventName))}).catch(e=>setLog('questionLog',e.message)))}
 function deleteSelectedQuestionsV22(btn){const items=[...selectedQuestionsV22].map(k=>{const a=k.split('\u0001');return{eventName:a[0],soruNo:Number(a[1])}});if(!items.length){setLog('questionLog','Silmek için en az bir soru seç.');return}if(!confirm(items.length+' soru kalıcı olarak silinsin mi?'))return;return action(btn,()=>api({api:'deleteQuestionsBulk',itemsJson:JSON.stringify(items)}).then(d=>{if(!d||!d.ok)throw new Error((d&&d.message)||'Sorular silinemedi.');selectedQuestionsV22.clear();setLog('questionLog',d.message,true);return refreshFullV22(()=>resetQuestionFieldsV22(($('qEventName').value||activeEventNameV22())))}).catch(e=>setLog('questionLog',e.message)))}
 
-newEventForm=newEventFormV22;
+
 function editEventV22(i){const e=eventRowsV22[Number(i)];if(!e)return;editingEventV22={name:e.name};$('eventName').value=e.name||'';$('eventStartLocal').value=e.startInput||'';$('eventEndLocal').value=e.endInput||'';$('eventNote').value=e.note||'';clearDirty();$('eventName').focus();setLog('eventLog','Düzenleme modu: '+e.name,true)}
 function makeEventActiveV22(i,btn){const e=eventRowsV22[Number(i)];if(!e)return;return action(btn,()=>api({api:'setActiveEvent',eventName:e.name}).then(d=>{if(!d||!d.ok)throw new Error((d&&d.message)||'Etkinlik aktif yapılamadı.');setLog('eventLog',d.message||'Etkinlik aktif.',true);return refreshFullV22()}).catch(e2=>setLog('eventLog',e2.message)))}
 function toggleEventV22(name,checked){checked?selectedEventsV22.add(eKeyV22(name)):selectedEventsV22.delete(eKeyV22(name));renderEvents(latest)}
@@ -1062,7 +1064,7 @@ body.ui-scroll-locked{
 @media(max-width:900px){#panel-event .event-manage-row{grid-template-columns:22px 22px minmax(0,1fr) auto}.event-manage-row .manage-actions{grid-column:3/5}.participant-account-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){#panel-event .event-manage-row{grid-template-columns:20px minmax(0,1fr)}#panel-event .event-state-dot{display:none}.event-manage-row .event-active-badge{grid-column:2;width:max-content}.event-manage-row .manage-actions{grid-column:2}.participant-account-grid{grid-template-columns:1fr}}
 </style>
-<div class="app-version">MOBILE v1.0.0</div>
+<div class="app-version">MOBILE v1.0.1</div>
 
 <script>
 (function(){
